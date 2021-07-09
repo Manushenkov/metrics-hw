@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html onclick="clickCounter()">
+  <head>
+    <title>Send metrics exampple</title>
+    <style type="text/css">
+      HTML {
+        background-color: black;
+      }
+      .square {
+        width: 100px;
+        height: 100px;
+
+        transform: translateX(-50%) translateY(-50%);
+
+        position: absolute;
+
+        top: 50%;
+        left: 50%;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="send.js"></script>
+    <script>
+      if (!sessionStorage.id) {
+        sessionStorage.id = Math.random(1000);
+      }
+
+      function clickCounter() {
+        if (typeof Storage !== "undefined") {
+          if (sessionStorage.clickcount) {
+            sessionStorage.clickcount = Number(sessionStorage.clickcount) + 1;
+          } else {
+            sessionStorage.clickcount = 1;
+          }
+          console.log("clicked");
+        }
+      }
+
+      let sBrowser;
+      let sUsrAg = navigator.userAgent;
+
+      if (sUsrAg.indexOf("Firefox") > -1) {
+        sBrowser = "Mozilla Firefox";
+      } else if (sUsrAg.indexOf("Opera") > -1) {
+        sBrowser = "Opera";
+      } else if (sUsrAg.indexOf("Trident") > -1) {
+        sBrowser = "Microsoft Internet Explorer";
+      } else if (sUsrAg.indexOf("Edge") > -1) {
+        sBrowser = "Microsoft Edge";
+      } else if (sUsrAg.indexOf("Chrome") > -1) {
+        sBrowser = "Google Chrome or Chromium";
+      } else if (sUsrAg.indexOf("Safari") > -1) {
+        sBrowser = "Apple Safari";
+      } else {
+        sBrowser = "unknown";
+      }
+
+      let counter = new Counter();
+
+      counter.init(
+        "6A1D62E1-5DB9-4480-A661-AC766AD7D3FA",
+        String(Math.random()).substr(2, 12),
+        "send test"
+      );
+      counter.setAdditionalParams({
+        env: "production",
+        platform:
+          "ontouchstart" in document.documentElement ? "touch" : "desktop",
+        browser: sBrowser,
+        sessionId: sessionStorage.id,
+      }); // отправляет тип устройтва, браузер и id сессии
+
+      counter.send(
+        "connect",
+        performance.timing.connectEnd - performance.timing.connectStart
+      );
+      counter.send("screenWidth", screen.width); //ширина экрана устройства
+      counter.send("screenHeight", screen.height); //высота экрана устройства
+      counter.send(
+        "ttfb",
+        performance.timing.responseEnd - performance.timing.requestStart
+      );
+
+      window.onbeforeunload = () => {
+        console.log("sent", sessionStorage.clickcount);
+        counter.send("session", sessionStorage.clickcount);
+      }; // при закрытии страницы на сервер отправляется значение clickcount из сессия пользователя
+
+      let timeStart = Date.now();
+
+      setTimeout(function () {
+        counter.send("load", Date.now() - timeStart);
+      }, Math.random() * 1000 + 500);
+    </script>
+    <div class="square"></div>
+  </body>
+</html>

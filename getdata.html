@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style type="text/css">
+      HTML {
+        background-color: black;
+      }
+    </style>
+    <title>Get metrics exampple</title>
+  </head>
+  <body>
+    <script>
+      function quantile(arr, q) {
+        const sorted = arr.sort((a, b) => a - b);
+        const pos = (sorted.length - 1) * q;
+        const base = Math.floor(pos);
+        const rest = pos - base;
+
+        if (sorted[base + 1] !== undefined) {
+          return Math.floor(
+            sorted[base] + rest * (sorted[base + 1] - sorted[base])
+          );
+        } else {
+          return Math.floor(sorted[base]);
+        }
+      }
+
+      function prepareData(result) {
+        return result.data.map((item) => {
+          item.date = item.timestamp.split("T")[0];
+
+          return item;
+        });
+      }
+
+      // показать значение метрики за несколько дней
+      function showMetricByPeriod(data, page, name, startDate, endDate) {
+        let sampleData = data
+          .filter(
+            (item) =>
+              item.page == page &&
+              item.name == name &&
+              new Date(item.date) >= new Date(startDate) &&
+              new Date(item.date) <= new Date(endDate)
+          )
+          .map((item) => item.value);
+
+        console.log(
+          `${(startDate, endDate)} ${name}: ` +
+            `p25=${quantile(sampleData, 0.25)}
+      	 p50=${quantile(sampleData, 0.5)} ` +
+            `p75=${quantile(sampleData, 0.75)}
+      	 p90=${quantile(sampleData, 0.9)} ` +
+            `hits=${sampleData.length}`
+        );
+      }
+
+      // присылает sessionStorage последней сессии с выбранным id (или все storage сессий с id если третий аргумент true)
+      function showSessionStorage(data, sessionId, isAll = false) {
+        let sampleData = data
+          .filter(
+            (item) =>
+              item.additional.sessionId == sessionId && item.name == "session"
+          )
+          .map((item) => item.value);
+        console.log(
+          `amount of clicks in the ${
+            isAll ? "every sent" : "last sent"
+          } session storage with the id of ${sessionId} :`,
+          isAll ? sampleData : sampleData.pop()
+        );
+      }
+
+      // присылает метрики сессии с выбранным id
+      function showSessionMetrics(data, sessionId) {
+        let sampleData = data
+          .filter((item) => item.additional.sessionId == sessionId)
+          .map((item) => [item.name, item.value]);
+        console.log(
+          `metrics of session with given id: ${sessionId} :`,
+          sampleData
+        );
+      }
+
+      // выводит статистику по использованной платформе/браузеру, в один день если
+      // вторая дата не указана, или в промежутке между двумя уканазаными
+      function showPlatformStatsPeriod(
+        data,
+        required,
+        startDate,
+        endDate = false
+      ) {
+        let sampleData;
+        if (endDate) {
+          sampleData = data.filter(
+            (item) =>
+              new Date(item.date) >= new Date(startDate) &&
+              new Date(item.date) <= new Date(endDate)
+          );
+        } else {
+          sampleData = data.filter((item) => item.date == startDate);
+        }
+
+        sampleData = sampleData.map((item) => item.additional[required]);
+
+        const count = {};
+
+        for (e of sampleData) {
+          if (e === undefined) continue;
+          count[e] === undefined ? (count[e] = 1) : count[e]++;
+        }
+        let formatOutput = (name, hits) => `${name} has ${hits} hits`;
+        if (endDate) {
+          console.group(
+            `Required statistic:s ${required} from ${startDate} to ${endDate}`
+          );
+        } else {
+          console.group(`Required statistics: ${required} on ${startDate}`);
+        }
+        for (i in count) {
+          console.log(formatOutput(i, count[i]));
+        }
+
+        console.groupEnd();
+      }
+
+      // сравнивает метрики двух разных дат
+      function compareMetric(data, page, name, date1, date2) {
+        if (date1 === date2) throw "нужно ввести разные даты";
+        if (new Date(date1) > new Date(date2))
+          throw "даты должны идти в порядке возрастания";
+
+        let sampleData1 = calcMetricByDate(data, page, name, date1, true);
+        let sampleData2 = calcMetricByDate(data, page, name, date2, true);
+
+        let diff25 = quantile(sampleData1, 0.25) - quantile(sampleData2, 0.25);
+        let diff50 = quantile(sampleData1, 0.5) - quantile(sampleData2, 0.5);
+        let diff75 = quantile(sampleData1, 0.75) - quantile(sampleData2, 0.75);
+        let diff90 = quantile(sampleData1, 0.9) - quantile(sampleData2, 0.9);
+        let diffHits = sampleData1.length - sampleData2.length;
+
+        let formatData = (data1, data2, diff, coeff) => {
+          return `p${coeff * 100} ${
+            diff >= 0 ? "fell" : "grew"
+          } by ${diff} points (${(
+            ((quantile(data2, coeff) - quantile(data1, coeff)) /
+              quantile(data1, coeff)) *
+            100
+          ).toFixed(1)}%), from ${quantile(data1, coeff)} points to ${quantile(
+            data2,
+            coeff
+          )}`;
+        };
+
+        console.group(
+          `metric comparison \ncomparing ${name} from ${date1} and ${date2}`
+        );
+        console.log(formatData(sampleData1, sampleData2, diff25, 0.25));
+        console.log(formatData(sampleData1, sampleData2, diff50, 0.5));
+        console.log(formatData(sampleData1, sampleData2, diff75, 0.75));
+        console.log(formatData(sampleData1, sampleData2, diff90, 0.9));
+        console.groupEnd();
+      }
+
+      // рассчитать метрику за выбранный день
+      function calcMetricByDate(data, page, name, date, returnSample = false) {
+        let sampleData = data
+          .filter(
+            (item) =>
+              item.page == page && item.name == name && item.date == date
+          )
+          .map((item) => item.value);
+
+        if (returnSample) return sampleData;
+
+        console.log(
+          `${date} ${name}: ` +
+            `p25=${quantile(sampleData, 0.25)} p50=${quantile(
+              sampleData,
+              0.5
+            )} ` +
+            `p75=${quantile(sampleData, 0.75)} p90=${quantile(
+              sampleData,
+              0.9
+            )} ` +
+            `hits=${sampleData.length}`
+        );
+      }
+
+      fetch(
+        "https://shri.yandex/hw/stat/data?counterId=6A1D62E1-5DB9-4480-A661-AC766AD7D3FA"
+      )
+        .then((res) => res.json())
+        .then((result) => {
+          let data = prepareData(result);
+          console.group(
+            "%ccalcMetricByDate - вывод метрик по дате",
+            "color: green"
+          );
+          calcMetricByDate(data, "send test", "connect", "2021-07-08");
+          calcMetricByDate(data, "send test", "ttfb", "2021-07-08");
+          calcMetricByDate(data, "send test", "load", "2021-07-08");
+          calcMetricByDate(data, "send test", "screenWidth", "2021-07-08");
+          calcMetricByDate(data, "send test", "screenHeight", "2021-07-08");
+          console.groupEnd("123");
+
+          console.group(
+            "%cshowMetricByPeriod - вывод метрик в период между date1 и date2",
+            "color: green"
+          );
+          showMetricByPeriod(
+            data,
+            "send test",
+            "load",
+            "2021-07-07",
+            "2021-07-09"
+          );
+          console.groupEnd();
+
+          console.group(
+            "%ccompareMetric - Сравнение метрик по датам",
+            "color: green"
+          );
+          compareMetric(data, "send test", "ttfb", "2021-07-08", "2021-07-09");
+          compareMetric(data, "send test", "load", "2021-07-08", "2021-07-09");
+          console.groupEnd();
+
+          console.group(
+            "%cshowPlatformStatsPeriod - показ статов из additionalParams в указанный день/период",
+            "color: green"
+          );
+          showPlatformStatsPeriod(data, "browser", "2021-07-08", "2021-07-09");
+          showPlatformStatsPeriod(data, "browser", "2021-07-08");
+          showPlatformStatsPeriod(data, "platform", "2021-07-08", "2021-07-09");
+          showPlatformStatsPeriod(data, "platform", "2021-07-08");
+          console.groupEnd();
+
+          console.group(
+            "%cshowSessionStorage - показ session storage по session id, отправленного в момент закрытия страницы",
+            "color: green"
+          );
+          showSessionStorage(data, "0.43588488383309354");
+          showSessionStorage(data, "0.43588488383309354", true);
+          console.groupEnd();
+
+          console.group(
+            "%cshowSessionStorage - показ всех метрик, собранных во время сессии с переданным id",
+            "color: green"
+          );
+          showSessionMetrics(data, "0.43588488383309354");
+          console.groupEnd();
+        });
+    </script>
+    <div class="square"></div>
+  </body>
+</html>
